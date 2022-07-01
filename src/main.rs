@@ -37,8 +37,10 @@ pub fn app() -> Html {
 
     let image = match (*image).clone() {
         Some(src) => html! {
-            <img {src}/> 
-            <div style="height:50px;border-left: 6px solid green"></div>
+            <div style="position:relative;height:1000px">
+            <div style="position:absolute;left:30px;top:30px;height:500px;width:300px;border:2px solid green"></div>
+            <img {src}/>
+            </div>
         },
         None => html! {}
     };
