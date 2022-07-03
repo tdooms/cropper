@@ -1,7 +1,7 @@
 use yew::*;
 use cobul::*;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use gloo::file::futures::read_as_data_url;
 
 
@@ -25,56 +25,61 @@ macro_rules! spawn {
     };
 }
 
-pub fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, factor: u64) {
-    let zoom = 1.0 + factor as f64 / 50.0;
-    log::info!("zoom: {zoom}");
+pub fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, zoom: u64, position: (i32, i32)) {
+    let (x_border, y_border) = (40.0, 30.0);
+    let zoom = 1.0 + zoom as f64 / 50.0;
 
     let element = canvas.get_context("2d").unwrap().unwrap();
     let context = element.dyn_into::<CanvasRenderingContext2d>().unwrap();
 
     let (i_width, i_height) = (image.width() as f64, image.height() as f64);
     let (c_width, c_height) = (canvas.width() as f64, canvas.height() as f64);
+    let (l_width, l_height) = (c_width - 2.0 * y_border, c_height - 2.0 * x_border);
 
-    let scale = (c_width / i_width).min(c_height / i_height);
+    let scale = (l_width / i_width).max(l_height / i_height);
 
     let (d_width, d_height) = (i_width * scale * zoom, i_height * scale * zoom);
     let (x_offset, y_offset) = ((c_width - d_width) / 2.0, (c_height - d_height) / 2.0);
 
     context.set_image_smoothing_enabled(true);
-    context.clear_rect(0.0, 0.0, c_width, c_height);
+    // context.clear_rect(0.0, 0.0, c_width, c_height);
 
-    context.draw_image_with_html_image_element_and_dw_and_dh(
+    context.set_global_alpha(1.0);
+    context.set_fill_style(&JsValue::from("red"));
+    context.fill_rect(0.0, 0.0, c_width, c_height);
+    context.set_fill_style(&JsValue::from("black"));
+
+    context.draw_image_with_html_image_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
         &image,
+        position.0 as f64,
+        position.1 as f64,
+        i_width,
+        i_height,
         x_offset,
         y_offset,
         d_width,
         d_height,
     ).unwrap();
 
-
-    let ratio = 4.0 / 3.0;
-    let size = (d_width * ratio).min(d_height) / (zoom * 2.0);
-    let (x_start, y_start) = (c_width / 2.0 - size * ratio, c_height / 2.0 - size);
-
     context.set_global_alpha(0.5);
-    context.fill_rect(0.0, 0.0, x_start, c_height);
-    context.fill_rect(0.0, 0.0, c_width, y_start);
-    context.fill_rect(c_width - x_start, 0.0, x_start, c_height);
-    context.fill_rect(0.0, c_height - y_start, c_width, y_start);
+    context.fill_rect(0.0, 0.0, y_border, c_height);
+    context.fill_rect(0.0, 0.0, c_width, x_border);
+    context.fill_rect(c_width - y_border, 0.0, y_border, c_height);
+    context.fill_rect(0.0, c_height - x_border, c_width, x_border);
 }
 
 #[function_component(App)]
 pub fn app() -> Html {
     let source: UseStateHandle<Option<String>> = use_state(|| None);
-    let position = use_state(|| None);
+    let position = use_state(|| (0, 0));
     let clicked = use_state(|| false);
     let zoom = use_state(|| 0);
 
     let canvas = use_node_ref();
     let image = use_node_ref();
 
-    let onload = callback!(canvas, image, zoom; move |_| {
-        draw(canvas.cast().unwrap(), image.cast().unwrap(), *zoom)
+    let onload = callback!(canvas, image, zoom, position; move |_| {
+        draw(canvas.cast().unwrap(), image.cast().unwrap(), *zoom, *position)
     });
 
     let onupload = callback!(source; move |files: Vec<web_sys::File>| {
@@ -82,21 +87,22 @@ pub fn app() -> Html {
         spawn!(source; async move {source.set(Some(read_as_data_url(&blob).await.unwrap())) });
     });
 
-    let onchange = callback!(canvas, image, zoom; move |value| {
+    let onchange = callback!(canvas, image, zoom, position; move |value| {
         zoom.set(value);
-        draw(canvas.cast().unwrap(), image.cast().unwrap(), value)
+        draw(canvas.cast().unwrap(), image.cast().unwrap(), value, *position)
     });
 
     let onmousedown = callback!(clicked; move |_: MouseEvent| clicked.set(true));
     let onmouseup = callback!(clicked; move |_: MouseEvent| clicked.set(false));
 
-    let onmousemove = callback!(position, clicked; move |ev: MouseEvent| {
+    let onmousemove = callback!(canvas, image, position, zoom; move |ev: MouseEvent| {
         if !*clicked {
             return;
         }
-
+        let (prev_x, prev_y) = *position;
         let new = (ev.offset_x(), ev.offset_y());
-        position.set(Some(new))
+        position.set(new);
+        draw(canvas.cast().unwrap(), image.cast().unwrap(), *zoom, new)
     });
 
     // let lens_move = callback!(position; move |ev: MouseEvent| {
