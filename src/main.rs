@@ -72,7 +72,7 @@ pub fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, zoom: u64, posit
 pub fn app() -> Html {
     let source: UseStateHandle<Option<String>> = use_state(|| None);
     let position = use_state(|| (0, 0));
-    let clicked = use_state(|| false);
+    let clicked = use_state(|| None);
     let zoom = use_state(|| 0);
 
     let canvas = use_node_ref();
@@ -92,17 +92,23 @@ pub fn app() -> Html {
         draw(canvas.cast().unwrap(), image.cast().unwrap(), value, *position)
     });
 
-    let onmousedown = callback!(clicked; move |_: MouseEvent| clicked.set(true));
-    let onmouseup = callback!(clicked; move |_: MouseEvent| clicked.set(false));
-
-    let onmousemove = callback!(canvas, image, position, zoom; move |ev: MouseEvent| {
-        if !*clicked {
-            return;
-        }
-        let (prev_x, prev_y) = *position;
+    let onmousedown = callback!(clicked; move |ev: MouseEvent| {
         let new = (ev.offset_x(), ev.offset_y());
-        position.set(new);
-        draw(canvas.cast().unwrap(), image.cast().unwrap(), *zoom, new)
+        clicked.set(Some(new));
+    });
+    let onmouseup = callback!(clicked; move |_: MouseEvent| clicked.set(None));
+    let onmouseout = callback!(clicked; move |_: MouseEvent| clicked.set(None));
+
+    let onmousemove = callback!(canvas, image, position, zoom, clicked; move |ev: MouseEvent| {
+        let new = (ev.offset_x(), ev.offset_y());
+        if let Some((start_x, start_y)) = *clicked {
+            clicked.set(Some(new));
+
+            let new = (position.0 - new.0 + start_x, position.1 - new.1 + start_y);
+            position.set(new);
+            draw(canvas.cast().unwrap(), image.cast().unwrap(), *zoom, new);
+
+        }
     });
 
     // let lens_move = callback!(position; move |ev: MouseEvent| {
@@ -123,7 +129,7 @@ pub fn app() -> Html {
     let src = (*source).clone();
     html! {
         <Section>
-        <canvas width=400 height=300 ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove}/>
+        <canvas width=400 height=300 ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
         <File {onupload} />
 
         <Columns>
