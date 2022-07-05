@@ -1,5 +1,5 @@
 [package]
-name = "cropper"
+name = "test"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,8 +8,12 @@ edition = "2021"
 [dependencies]
 yew = { git = "https://github.com/yewstack/yew.git", rev = "421b4e1f608e6d648dcf571157b081fcbd886996", features = ["csr"] }
 cobul = { git = "https://github.com/tdooms/cobul.git", features = ["custom"] }
+cropper = { path = ".." }
 
+wasm-bindgen-futures = "*"
+web-sys = { version = "0.3", features = ["File", "Blob"] }
+gloo = { version = "0.5", features = ["futures"] }
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement", "CanvasRenderingContext2d", "HtmlImageElement"] }
 
+wasm-logger = "0.2"
 log = "0.4"

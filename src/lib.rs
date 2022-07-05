@@ -1,20 +1,29 @@
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement};
 use wasm_bindgen::JsCast;
 use yew::*;
-use crate::{callback, effect};
 use std::f64::consts::PI;
 use std::rc::Rc;
+use cobul::*;
+
+macro_rules! callback {
+    ( $( $x:ident ),*; $y:expr ) => {
+        {
+            $(let $x = $x.clone();)*
+            Callback::from($y)
+        }
+    };
+}
 
 const V_BORDER: f64 = 40.0;
 const H_BORDER: f64 = 30.0;
 
-pub struct CenterImage {
+struct CenterImage {
     offset: (f64, f64),
     dims: (f64, f64),
     scale: f64,
 }
 
-pub fn center_image(canvas: &HtmlCanvasElement, image: &HtmlImageElement, zoom: f64) -> CenterImage {
+fn center_image(canvas: &HtmlCanvasElement, image: &HtmlImageElement, zoom: f64) -> CenterImage {
     let (i_width, i_height) = (image.width() as f64, image.height() as f64);
     let (c_width, c_height) = (canvas.width() as f64, canvas.height() as f64);
     let (l_width, l_height) = (c_width - 2.0 * V_BORDER, c_height - 2.0 * H_BORDER);
@@ -27,7 +36,7 @@ pub fn center_image(canvas: &HtmlCanvasElement, image: &HtmlImageElement, zoom: 
     CenterImage { dims, offset, scale }
 }
 
-pub fn constrain_position((pos_x, pos_y): (f64, f64), (off_x, off_y): (f64, f64)) -> (f64, f64) {
+fn constrain_position((pos_x, pos_y): (f64, f64), (off_x, off_y): (f64, f64)) -> (f64, f64) {
     let (x_win, y_win) = (V_BORDER - off_x, H_BORDER - off_y);
 
     let new_x = if x_win != 0.0 { pos_x.clamp(-x_win.abs(), x_win.abs()) } else { 0.0 };
@@ -36,19 +45,22 @@ pub fn constrain_position((pos_x, pos_y): (f64, f64), (off_x, off_y): (f64, f64)
     (new_x, new_y)
 }
 
-pub fn bounding_box(image: &HtmlImageElement, (pos_x, pos_y): (f64, f64), scale: f64, zoom: f64) -> ((f64, f64), (f64, f64)) {
-    log::debug!("{}, {}", pos_x / scale, pos_y / scale);
-    let dims = (4.0 / 3.0 * image.height() as f64 / zoom, image.height() as f64 / zoom);
+fn bounding_box(image: &HtmlImageElement, (pos_x, pos_y): (f64, f64), scale: f64, zoom: f64) -> ((f64, f64), (f64, f64)) {
+    let (width, height) = (image.width() as f64, image.height() as f64);
+    let factor = height.min( 3.0/4.0 * width);
 
-    log::info!("{zoom}");
+    let dims = (4.0/3.0 * factor / zoom, factor / zoom);
 
-    let x_corner = pos_x / scale + image.width() as f64 / 2.0 -  2.0/3.0 * image.height() as f64 / zoom;
-    let y_corner = pos_y / scale + image.height() as f64 / 2.0 - image.height() as f64 / (2.0 * zoom);
+    let (x_center, y_center) = (pos_x / scale + width / 2.0, pos_y / scale + height / 2.0);
+
+
+    let x_corner = x_center - 4.0/3.0 * factor / (2.0 * zoom);
+    let y_corner = y_center - factor / (2.0 * zoom);
 
     ((x_corner, y_corner), dims)
 }
 
-pub fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, zoom: f64, pos: (f64, f64), radius: f64) {
+fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, zoom: f64, pos: (f64, f64), radius: f64) {
     let element = canvas.get_context("2d").unwrap().unwrap();
     let context = element.dyn_into::<CanvasRenderingContext2d>().unwrap();
 
@@ -57,7 +69,6 @@ pub fn draw(canvas: HtmlCanvasElement, image: HtmlImageElement, zoom: f64, pos: 
 
     context.set_image_smoothing_enabled(true);
     context.clear_rect(0.0, 0.0, width, height);
-    context.fill_rect(0.0, 0.0, width, height);
     context.set_global_alpha(1.0);
     context.draw_image_with_html_image_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
         &image,
@@ -93,21 +104,20 @@ pub struct Props {
     pub width: u64,
     pub height: u64,
 
-    #[prop_or(1.0)]
-    pub zoom: f64,
+    #[prop_or(3.0)]
+    pub max_zoom: f64,
 
     #[prop_or(30.0)]
     pub radius: f64,
 
     pub src: Rc<String>,
 
-    pub callback: Callback<((f64, f64), (f64, f64))>,
+    pub callback: Callback<Option<String>>,
 }
 
-// TODO: deal with zoom out when at border -> leads to 'out of bounds'
 #[function_component(Cropper)]
 pub fn cropper(props: &Props) -> Html {
-    let Props { width, height, zoom, src, radius, callback } = props.clone();
+    let Props { width, height, max_zoom, src, radius, callback } = props.clone();
 
     let image = use_state(|| {
         let image = HtmlImageElement::new().unwrap();
@@ -115,67 +125,83 @@ pub fn cropper(props: &Props) -> Html {
         image
     });
 
+    let zoom = use_state_eq(|| 1.0);
     let position = use_state(|| (0.0, 0.0));
     let clicked = use_state(|| None);
     let canvas = use_node_ref();
 
-    let bounding = use_state(|| ((0.0, 0.0), (0.0, 0.0)));
-    let preview = use_node_ref();
-
-    let (canvas_c, image_c, position_c, bounding_c, preview_c) = (canvas.clone(), image.clone(), position.clone(), bounding.clone(), preview.clone());
+    let (canvas_c, image_c, position_c, zoom_c) = (canvas.clone(), image.clone(), position.clone(), zoom.clone());
     use_effect(move || {
-        draw(canvas_c.cast().unwrap(), (*image_c).clone(), zoom, *position_c, radius);
+        draw(canvas_c.cast().unwrap(), (*image_c).clone(), *zoom_c, *position_c, radius);
+        || ()
+    });
 
-        let canvas: HtmlCanvasElement = preview_c.cast().unwrap();
+    let onchange = callback!(zoom, position, canvas, image; move |value| {
+        let CenterImage{offset, ..} = center_image(&canvas.cast().unwrap(), &*image.clone(), *zoom);
+        let pos = constrain_position(*position, offset);
+
+        position.set(pos);
+        zoom.set(value);
+    });
+    let onmouseup = callback!(clicked; move |_: MouseEvent| clicked.set(None));
+    let onmouseout = callback!(clicked; move |_: MouseEvent| clicked.set(None));
+
+    let onmousedown = callback!(clicked; move |ev: MouseEvent| {
+        let new = (ev.offset_x() as f64, ev.offset_y() as f64);
+        clicked.set(Some(new));
+    });
+    let onmousemove = callback!(canvas, image, position, clicked, zoom; move |ev: MouseEvent| {
+        let absolute = (ev.offset_x() as f64, ev.offset_y() as f64);
+        if let Some((start_x, start_y)) = *clicked {
+            let new = (position.0 - absolute.0 + start_x, position.1 - absolute.1 + start_y);
+
+            let CenterImage{offset, ..} = center_image(&canvas.cast().unwrap(), &*image.clone(), *zoom);
+            let pos = constrain_position(new, offset);
+
+            clicked.set(Some(absolute));
+            position.set(pos);
+        }
+    });
+
+    let onclose = callback!(callback; move |_| callback.emit(None));
+
+    let ondone = callback!(image, canvas, position, zoom; move |_| {
+        let canvas: HtmlCanvasElement = canvas.cast().unwrap();
         let element = canvas.get_context("2d").unwrap().unwrap();
         let context = element.dyn_into::<CanvasRenderingContext2d>().unwrap();
 
+        let CenterImage{scale, ..} = center_image(&canvas, &*image.clone(), *zoom);
+        let bb = bounding_box(&*image.clone(), *position, scale, *zoom);
+
         context.clear_rect(0.0, 0.0, canvas.width() as f64, canvas.height() as f64);
-        log::info!("{bounding_c:?}");
         context.draw_image_with_html_image_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-            &image_c,
-            bounding_c.0.0,
-            bounding_c.0.1,
-            bounding_c.1.0,
-            bounding_c.1.1,
+            &image,
+            bb.0.0,
+            bb.0.1,
+            bb.1.0,
+            bb.1.1,
             0.0,
             0.0,
             400.0,
             300.0,
         ).unwrap();
 
-        || ()
+        callback.emit(Some(canvas.to_data_url().unwrap()))
     });
 
-    let onmousedown = callback!(clicked; move |ev: MouseEvent| {
-        let new = (ev.offset_x() as f64, ev.offset_y() as f64);
-        clicked.set(Some(new));
-    });
-    let onmouseup = callback!(clicked; move |_: MouseEvent| clicked.set(None));
-    let onmouseout = callback!(clicked; move |_: MouseEvent| clicked.set(None));
-
-    let onmousemove = callback!(canvas, image, position, clicked, zoom; move |ev: MouseEvent| {
-        let absolute = (ev.offset_x() as f64, ev.offset_y() as f64);
-        if let Some((start_x, start_y)) = *clicked {
-            let new = (position.0 - absolute.0 + start_x, position.1 - absolute.1 + start_y);
-
-            let CenterImage{offset, scale, ..} = center_image(&canvas.cast().unwrap(), &*image.clone(), zoom);
-            let pos = constrain_position(new, offset);
-
-            clicked.set(Some(absolute));
-            position.set(pos);
-
-            log::warn!("{offset:?}");
-            let bb = bounding_box(&*image.clone(), pos, scale, zoom);
-            bounding.set(bb);
-            callback.emit(bb);
-        }
-    });
+    let footer = html!{
+        <Buttons>
+        <Button onclick={onclose.clone()}> <span> {"Cancel"} </span> </Button>
+        <Button color={Color::Primary} onclick={ondone}> <span> {"Save"} </span> </Button>
+        </Buttons>
+    };
 
     html! {
         <>
-        <canvas width={width.to_string()} height={height.to_string()} ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
-        <canvas width={width.to_string()} height={height.to_string()} ref={preview}/>
+        <ModalCard title="Crop your image" active=true {footer} {onclose}>
+            <canvas width={width.to_string()} height={height.to_string()} ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
+            <Slider<f64> range={1.0..max_zoom} value={*zoom} steps=50 {onchange}/>
+        </ModalCard>
         </>
     }
 }
