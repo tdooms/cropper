@@ -174,6 +174,7 @@ pub fn cropper(props: &Props) -> Html {
         let bb = bounding_box(&*image.clone(), *position, scale, *zoom);
 
         context.clear_rect(0.0, 0.0, canvas.width() as f64, canvas.height() as f64);
+        context.set_global_alpha(1.0);
         context.draw_image_with_html_image_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
             &image,
             bb.0.0,
