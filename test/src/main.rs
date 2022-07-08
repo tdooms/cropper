@@ -35,14 +35,16 @@ pub fn app() -> Html {
 
         spawn!(source; async move {
             let data = read_as_data_url(&blob).await.unwrap();
+            log::warn!("image has been loaded");
             source.set(Some(Rc::new(data)))
         });
     });
 
-    let callback = callback!(result; move |value| result.set(value));
+    let ondone = callback!(result; move |value| result.set(Some(value)));
+    let oncancel = callback!(source; move |_| source.set(None));
 
     let image = match ((*source).clone(), result.as_ref()) {
-        (Some(src), None) => html! {<Cropper width=600 height=450 {src} {callback}/>},
+        (Some(src), None) => html! {<Cropper width=600 height=450 {src} {ondone} {oncancel}/>},
         _ => html! {}
     };
 

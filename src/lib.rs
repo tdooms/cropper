@@ -4,6 +4,7 @@ use yew::*;
 use std::f64::consts::PI;
 use std::rc::Rc;
 use cobul::*;
+use log::trace;
 
 macro_rules! callback {
     ( $( $x:ident ),*; $y:expr ) => {
@@ -129,33 +130,38 @@ pub struct Props {
 
     pub src: Rc<String>,
 
-    pub callback: Callback<Option<String>>,
+    pub ondone: Callback<String>,
+    pub oncancel: Callback<()>,
 }
 
 #[function_component(Cropper)]
 pub fn cropper(props: &Props) -> Html {
-    let Props { width, height, max_zoom, src, radius, callback } = props.clone();
-
-    let image = use_state(|| {
-        let image = HtmlImageElement::new().unwrap();
-        image.set_src(&src);
-        image
-    });
+    log::warn!("rendering component with {props:?}");
+    let Props { width, height, max_zoom, src, radius, ondone, oncancel } = props.clone();
 
     let zoom = use_state_eq(|| 1.0);
-    let position = use_state(|| (0.0, 0.0));
-    let clicked = use_state(|| None);
+    let position = use_state_eq(|| (0.0, 0.0));
+    let clicked = use_state_eq(|| None);
+    let loaded = use_state_eq(|| false);
 
+    let image = use_node_ref();
     let canvas = use_node_ref();
 
-    let (canvas_c, image_c, position_c, zoom_c) = (canvas.clone(), image.clone(), position.clone(), zoom.clone());
-    use_effect(move || {
-        draw(canvas_c.cast().unwrap(), (*image_c).clone(), *zoom_c, *position_c, radius);
+    let (canvas_c, image_c) = (canvas.clone(), image.clone());
+    use_effect_with_deps(move |(position, loaded, zoom)| {
+        let (canvas, image) = (canvas_c.cast().unwrap(), image_c.cast().unwrap());
+
+        if **loaded {
+            log::error!("drawing {position:?} {zoom:?}");
+            draw(canvas, image, **zoom, **position, radius);
+        }
         || ()
-    });
+    }, (position.clone(), loaded.clone(), zoom.clone()));
+
+    let onload = callback!(loaded; move |_| loaded.set(true));
 
     let onchange = callback!(zoom, position, canvas, image; move |value| {
-        let dims = Dimensions::new(&canvas.cast().unwrap(), &*image);
+        let dims = Dimensions::new(&canvas.cast().unwrap(), &image.cast().unwrap());
         let CenterImage{offset, ..} = center_image(dims, *zoom);
         let pos = constrain_position(dims, *position, offset);
 
@@ -174,7 +180,7 @@ pub fn cropper(props: &Props) -> Html {
         if let Some((start_x, start_y)) = *clicked {
             let new = (position.0 - absolute.0 + start_x, position.1 - absolute.1 + start_y);
 
-            let dims = Dimensions::new(&canvas.cast().unwrap(), &*image);
+            let dims = Dimensions::new(&canvas.cast().unwrap(), &image.cast().unwrap());
             let CenterImage{offset, ..} = center_image(dims, *zoom);
             let pos = constrain_position(dims, new, offset);
 
@@ -183,14 +189,16 @@ pub fn cropper(props: &Props) -> Html {
         }
     });
 
-    let onclose = callback!(callback; move |_| callback.emit(None));
+    let onclose = oncancel.reform(|_| ());
 
     let ondone = callback!(image, canvas, position, zoom; move |_| {
         let canvas: HtmlCanvasElement = canvas.cast().unwrap();
+        let image: HtmlImageElement = image.cast().unwrap();
+
         let element = canvas.get_context("2d").unwrap().unwrap();
         let context = element.dyn_into::<CanvasRenderingContext2d>().unwrap();
 
-        let dims = Dimensions::new(&canvas, &*image);
+        let dims = Dimensions::new(&canvas, &image);
         let CenterImage{scale, ..} = center_image(dims, *zoom);
         let bb = bounding_box(dims, *position, scale, *zoom);
 
@@ -208,7 +216,7 @@ pub fn cropper(props: &Props) -> Html {
             canvas.height() as f64,
         ).unwrap();
 
-        callback.emit(Some(canvas.to_data_url().unwrap()))
+        ondone.emit(canvas.to_data_url().unwrap())
     });
 
     let footer = html! {
@@ -221,6 +229,7 @@ pub fn cropper(props: &Props) -> Html {
     html! {
         <>
         <ModalCard title="Crop your image" active=true {footer} {onclose}>
+            <img style="display:none" src={(*src).clone()} {onload} ref={image} />
             <canvas width={width.to_string()} height={height.to_string()} ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
             <Slider<f64> range={1.0..max_zoom} value={*zoom} steps=50 {onchange}/>
         </ModalCard>
