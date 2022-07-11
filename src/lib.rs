@@ -231,7 +231,7 @@ pub fn cropper(props: &Props) -> Html {
         <ModalCard title="Crop your image" active=true {footer} {onclose}>
             <img style="display:none" src={(*src).clone()} {onload} ref={image} />
             <canvas width={width.to_string()} height={height.to_string()} ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
-            <Slider<f64> id="crsl" fullwidth=true tooltip=true range={1.0..max_zoom} value={*zoom} step=0.05 {oninput}/>
+            <Slider<f64> id="crsl" fullwidth=true tooltip=true range={1.0..max_zoom} value={*zoom} step=0.1 {oninput}/>
         </ModalCard>
         </>
     }
