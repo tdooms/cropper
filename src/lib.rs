@@ -4,7 +4,6 @@ use yew::*;
 use std::f64::consts::PI;
 use std::rc::Rc;
 use cobul::*;
-use log::trace;
 
 macro_rules! callback {
     ( $( $x:ident ),*; $y:expr ) => {
