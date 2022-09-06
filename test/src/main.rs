@@ -30,21 +30,20 @@ pub fn app() -> Html {
     let source: UseStateHandle<Option<Rc<String>>> = use_state_eq(|| None);
     let result = use_state(|| None);
 
-    let onupload = callback!(source; move |files: Vec<web_sys::File>| {
+    let input = callback!(source; move |files: Vec<web_sys::File>| {
         let blob = gloo::file::Blob::from(files[0].clone());
 
         spawn!(source; async move {
             let data = read_as_data_url(&blob).await.unwrap();
-            log::warn!("image has been loaded");
             source.set(Some(Rc::new(data)))
         });
     });
 
-    let ondone = callback!(result; move |value| result.set(Some(value)));
-    let oncancel = callback!(source; move |_| source.set(None));
+    let done = callback!(result; move |value| result.set(Some(value)));
+    let cancel = callback!(source; move |_| source.set(None));
 
     let image = match ((*source).clone(), result.as_ref()) {
-        (Some(src), None) => html! {<Cropper width=600 height=450 {src} {ondone} {oncancel}/>},
+        (Some(src), None) => html! {<Cropper width=600 height=450 {src} {done} {cancel}/>},
         _ => html! {}
     };
 
@@ -52,7 +51,7 @@ pub fn app() -> Html {
         <Section>
 
         {image}
-        <File {onupload} />
+        <File {input} />
 
         <img src={(*result).clone()} />
 

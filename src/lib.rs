@@ -129,14 +129,14 @@ pub struct Props {
 
     pub src: Rc<String>,
 
-    pub ondone: Callback<String>,
-    pub oncancel: Callback<()>,
+    pub done: Callback<String>,
+    pub cancel: Callback<()>,
 }
 
 #[function_component(Cropper)]
 pub fn cropper(props: &Props) -> Html {
     log::warn!("rendering component with {props:?}");
-    let Props { width, height, max_zoom, src, radius, ondone, oncancel } = props.clone();
+    let Props { width, height, max_zoom, src, radius, done, cancel } = props.clone();
 
     let zoom = use_state_eq(|| 1.0);
     let position = use_state_eq(|| (0.0, 0.0));
@@ -159,7 +159,7 @@ pub fn cropper(props: &Props) -> Html {
 
     let onload = callback!(loaded; move |_| loaded.set(true));
 
-    let oninput = callback!(zoom, position, canvas, image; move |value| {
+    let input = callback!(zoom, position, canvas, image; move |value| {
         let dims = Dimensions::new(&canvas.cast().unwrap(), &image.cast().unwrap());
         let CenterImage{offset, ..} = center_image(dims, *zoom);
         let pos = constrain_position(dims, *position, offset);
@@ -188,9 +188,9 @@ pub fn cropper(props: &Props) -> Html {
         }
     });
 
-    let onclose = oncancel.reform(|_| ());
+    let close = cancel.reform(|_| ());
 
-    let ondone = callback!(image, canvas, position, zoom; move |_| {
+    let done = callback!(image, canvas, position, zoom; move |_| {
         let canvas: HtmlCanvasElement = canvas.cast().unwrap();
         let image: HtmlImageElement = image.cast().unwrap();
 
@@ -215,22 +215,22 @@ pub fn cropper(props: &Props) -> Html {
             canvas.height() as f64,
         ).unwrap();
 
-        ondone.emit(canvas.to_data_url().unwrap())
+        done.emit(canvas.to_data_url().unwrap())
     });
 
     let footer = html! {
         <Buttons>
-        <Button onclick={onclose.clone()}> <span> {"Cancel"} </span> </Button>
-        <Button color={Color::Primary} onclick={ondone}> <span> {"Save"} </span> </Button>
+        <Button click={close.clone()}> <span> {"Cancel"} </span> </Button>
+        <Button color={Color::Primary} click={done}> <span> {"Save"} </span> </Button>
         </Buttons>
     };
 
     html! {
         <>
-        <ModalCard title="Crop your image" active=true {footer} {onclose}>
+        <ModalCard title="Crop your image" active=true {footer} {close}>
             <img style="display:none" src={(*src).clone()} {onload} ref={image} />
             <canvas width={width.to_string()} height={height.to_string()} ref={canvas} style="border:1px" {onmousedown} {onmouseup} {onmousemove} {onmouseout}/>
-            <Slider<f64> id="crsl" fullwidth=true tooltip=true range={1.0..max_zoom} value={*zoom} step=0.1 {oninput}/>
+            <Slider<f64> fullwidth=true tooltip=true range={1.0..max_zoom} value={*zoom} step=0.1 {input}/>
         </ModalCard>
         </>
     }
